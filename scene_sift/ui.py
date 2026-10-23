@@ -10,7 +10,8 @@ import streamlit as st
 from engine import (DETECTION_GROUPS, GEMMA_MODEL, MODEL_REPO, annotated_image,
                     configured_api_key, crop_observation, detect_objects, open_image)
 from investigator import (cross_examine, evidence_only_fallback, format_investigation, investigate_scene,
-                          investigation_from_scan, merge_evidence, scan_visual_clues)
+                          investigation_from_scan, merge_evidence, question_fallback_from_scan,
+                          scan_visual_clues)
 from report import build_report
 
 
@@ -228,10 +229,11 @@ with tab_questions:
             st.rerun()
         except Exception as exc:
             if case.get("leads"):
+                fallback_result = question_fallback_from_scan(items, question, case.get("leads"))
                 answer = (
-                    "The follow-up request was unavailable, so here are the findings from "
-                    "the successful Gemma visual scan:\n\n"
-                    + format_investigation(case["leads"])
+                    "The follow-up request was unavailable, so this answer uses the successful "
+                    "Gemma visual scan:\n\n"
+                    + format_investigation(fallback_result)
                 )
             else:
                 answer = (

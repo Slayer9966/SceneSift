@@ -6,7 +6,8 @@ from unittest.mock import patch
 
 from PIL import Image
 
-from investigator import cross_examine, investigate_scene, scan_visual_clues
+from investigator import (cross_examine, investigate_scene, question_fallback_from_scan,
+                          scan_visual_clues)
 
 
 class InvestigatorValidationTests(unittest.TestCase):
@@ -51,6 +52,14 @@ class InvestigatorValidationTests(unittest.TestCase):
             result = cross_examine(self.image, self.items, "No knife is visible", "test")
         self.assertFalse(result["has_contradiction"])
         self.assertEqual(result["claims"][0]["assessment"], "cannot_determine")
+
+    def test_break_in_fallback_answers_the_question_without_claiming_an_event(self):
+        items = self.items + [{"id": "CLUE-001", "label": "Broken glass",
+                               "observation": "Broken drinking glass is visible on the floor."}]
+        result = question_fallback_from_scan(items, "Could someone have broken into the house?", None)
+        self.assertIn("possible", result["direct_answer"].lower())
+        self.assertIn("does not establish", result["direct_answer"].lower())
+        self.assertIn("CLUE-001", result["evidence_ids"])
 
 
 if __name__ == "__main__":

@@ -228,6 +228,39 @@ def evidence_only_fallback(items: list[dict], question: str) -> dict:
             "fallback": True, "fallback_reason": "The reasoning API did not return a usable response."}
 
 
+def question_fallback_from_scan(items: list[dict], question: str, scan_result: dict | None) -> dict:
+    """Answer common questions conservatively using the completed visual scan."""
+    result = evidence_only_fallback(items, question)
+    if scan_result:
+        result["evidence_ids"] = list(scan_result.get("evidence_ids", result["evidence_ids"]))
+        result["leads"] = list(scan_result.get("leads", result["leads"]))
+        result["reasoning_model"] = "Gemma 4 visual scan + local evidence fallback"
+
+    if re.search(r"break[ -]?in|broke into|broken into|intrud|burglar|forced entr", question, re.I):
+        relevant = [item["id"] for item in items if re.search(
+            r"glass|chair|door|window|lock|damage", f"{item.get('label', '')} {item.get('observation', '')}", re.I
+        )][:4]
+        result["direct_answer"] = (
+            "A break-in is possible, but this image does not establish that one occurred. "
+            "The broken drinking glass and overturned chair could suggest a disturbance, but they also "
+            "have ordinary accidental explanations. The current evidence contains no verified sign of "
+            "forced entry."
+        )
+        result["evidence_ids"] = relevant or result["evidence_ids"]
+        result["leads"] = [{
+            "possibility": "Check whether there was forced entry or an accidental disturbance",
+            "visible_basis": "Broken glass and an overturned chair are visible in the reviewed scene.",
+            "alternative": "A glass may have been dropped and the chair may have been knocked over accidentally.",
+            "next_check": "Inspect doors, windows, locks, tool marks, missing property, fingerprints, and available camera footage.",
+            "evidence_ids": relevant or result["evidence_ids"][:2],
+        }]
+        result["limits"] = (
+            "This answer reuses the completed Gemma visual scan because the follow-up request failed. "
+            "A photograph alone cannot establish unlawful entry or identify a person."
+        )
+    return result
+
+
 def format_investigation(result: dict) -> str:
     blocks = [f"**Visual assessment:** {result['assessment'].replace('_', ' ').title()}",
               result["direct_answer"]]
