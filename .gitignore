@@ -1,0 +1,11 @@
+.venv/
+__pycache__/
+.pytest_cache/
+.env
+*.pyc
+output/
+scene_sift/.yolo/
+scene_sift/models/
+tmp/
+static/
+

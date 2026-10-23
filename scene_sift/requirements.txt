@@ -1,0 +1,8 @@
+streamlit>=1.37,<2
+transformers>=4.50,<5
+torch>=2.1
+torchvision>=0.16
+safetensors>=0.4
+reportlab>=4.4,<6
+pillow>=10,<14
+requests>=2.32,<3
