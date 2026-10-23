@@ -18,6 +18,7 @@ from PIL import Image, ImageDraw, ImageFont, ImageOps
 MODEL_REPO = "IDEA-Research/grounding-dino-base"
 GEMMA_MODEL = "gemma-4-31b-it"
 GEMMA_FALLBACK_MODEL = "gemma-4-26b-a4b-it"
+GEMMA_RETRY_DELAY_SECONDS = 10
 DETECTION_GROUPS = (
     ("knife", "machete", "cleaver", "box cutter", "razor blade", "scissors",
      "axe", "sword", "broken glass", "sharp metal shard", "needle", "syringe"),
@@ -193,7 +194,13 @@ def _gemma(parts: list[dict], key: str, json_output: bool = False,
             if response.status_code not in {408, 429, 500, 502, 503, 504}:
                 raise RuntimeError(f"Gemma API error: {last_error}")
         if attempt < len(model_sequence) - 1:
-            time.sleep(min(4, 2 ** attempt))
+            retry_after = 0
+            if response is not None:
+                try:
+                    retry_after = int(response.headers.get("Retry-After", "0"))
+                except (TypeError, ValueError):
+                    retry_after = 0
+            time.sleep(max(GEMMA_RETRY_DELAY_SECONDS, retry_after))
     else:
         raise RuntimeError(f"Gemma API remained unavailable after retries. {last_error}")
     try:
