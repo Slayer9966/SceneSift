@@ -11,7 +11,11 @@ from engine import (GEMMA_FALLBACK_MODEL, GEMMA_MODEL, _gemma, _image_part,
                     _overlap, crop_observation)
 
 
-REASONING_MODELS = (GEMMA_FALLBACK_MODEL, GEMMA_MODEL)
+# Keep Gemma as the primary reasoning model required by the project.  Google's
+# hosted Gemma 4 endpoints can intermittently return HTTP 500, so lightweight
+# follow-up tasks may fall back to another Google reasoning model rather than
+# making the entire demo feature fail.
+REASONING_MODELS = (GEMMA_FALLBACK_MODEL, GEMMA_MODEL, "gemini-3.8-flash")
 
 
 def evidence_sheet(image: Image.Image, items: list[dict]) -> Image.Image:

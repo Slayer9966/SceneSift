@@ -52,7 +52,7 @@ The investigation pipeline is composed of two complementary AI components:
 ├── LICENSE                        # MIT License
 │
 └── scene_sift/
-    ├── app.py                     # Main application workflow
+    ├── ui.py                      # Main application workflow
     ├── engine.py                  # Grounding DINO and Gemma API integration
     ├── investigator.py            # Evidence validation and reasoning logic
     ├── report.py                  # Investigative PDF generation

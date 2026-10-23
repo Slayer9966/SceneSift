@@ -7,4 +7,4 @@ import sys
 app_dir = Path(__file__).parent / "scene_sift"
 sys.path.insert(0, str(app_dir))
 
-runpy.run_path(str(app_dir / "app.py"), run_name="__main__")
+runpy.run_path(str(app_dir / "ui.py"), run_name="__main__")

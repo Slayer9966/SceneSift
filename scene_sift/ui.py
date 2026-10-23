@@ -1,4 +1,4 @@
-"""SceneSift hackathon demo. Run: streamlit run scene_sift/app.py"""
+"""SceneSift Streamlit interface, launched through the repository's root app.py."""
 
 from __future__ import annotations
 
@@ -12,6 +12,42 @@ from engine import (DETECTION_GROUPS, GEMMA_MODEL, MODEL_REPO, annotated_image,
 from investigator import (cross_examine, evidence_only_fallback, format_investigation, investigate_scene,
                           investigation_from_scan, merge_evidence, scan_visual_clues)
 from report import build_report
+
+
+def cached_demo_clues(image):
+    """Previously generated Gemma output for the bundled scene, used only if its API is down."""
+    specifications = [
+        ("Knife", [445, 58, 692, 235], "A chef's knife and sliced plums are visible on a cutting board.",
+         "Check whether the knife is relevant to the scene.",
+         "It may simply have been used for ordinary food preparation.",
+         "Inspect it and compare its location with other verified scene evidence."),
+        ("Broken glass and red liquid", [477, 437, 800, 742],
+         "Shards of clear glass and a pool of red liquid are visible on the floor.",
+         "Check whether the broken glass and spill indicate a disturbance.",
+         "A drinking glass may have been dropped accidentally.",
+         "Identify the liquid and examine the glass pattern and nearby surfaces."),
+        ("Overturned chair", [220, 645, 776, 980],
+         "A wooden chair is lying on its side beside the table.",
+         "Check whether the chair's position is connected to the other visible clues.",
+         "The chair may have been moved or knocked over during normal activity.",
+         "Document its position and check for contact marks or other physical evidence."),
+    ]
+    clues = []
+    for index, (name, box, detail, possibility, alternative, next_check) in enumerate(specifications, 1):
+        y1, x1, y2, x2 = box
+        clues.append({
+            "id": f"CLUE-{index:03d}", "label": name,
+            "source": "Gemma 4 (cached demo result)", "confidence": None,
+            "box_1000": box,
+            "box": [round(x1 * image.width / 1000), round(y1 * image.height / 1000),
+                    round(x2 * image.width / 1000), round(y2 * image.height / 1000)],
+            "observation": detail, "context": "",
+            "limitation": "Precomputed Gemma output for the bundled demo image; verify the crop.",
+            "model_verdict": "unverified",
+            "scan_lead": {"possibility": possibility, "alternative": alternative,
+                          "next_check": next_check},
+        })
+    return clues
 
 
 st.set_page_config(page_title="SceneSift | Visual Investigator", page_icon="🔎", layout="wide")
@@ -34,7 +70,7 @@ with st.sidebar:
     st.caption(f"Broad sweep: {sum(len(group) for group in DETECTION_GROUPS)} object names across sharp objects, firearms, explosives, and other visible hazards. Add specific terms above when needed.")
     st.caption("Gemma 4 key: configured locally" if api_key else "Gemma 4 key: missing from local .env")
 
-raw = (Path(__file__).parent / "demo" / "synthetic_kitchen_knife.png").read_bytes() if source == "Synthetic demo" else (upload.getvalue() if upload is not None else None)
+raw = (Path(__file__).parent / "demo" / "synthetic_incident_scene.png").read_bytes() if source == "Synthetic demo" else (upload.getvalue() if upload is not None else None)
 if raw is None:
     st.session_state.pop("case", None)
 if raw is not None:
@@ -52,13 +88,18 @@ if analyze:
         progress.progress(35, text="Grounding DINO sweep complete. Asking Gemma 4 to localize visual clues...")
         items = merge_evidence(detections, [])
         gemma_errors = []
+        demo_fallback = False
         leads = None
         if api_key:
             try:
                 clues = scan_visual_clues(image, api_key)
                 items = merge_evidence(detections, clues)
             except Exception as exc:
-                gemma_errors.append("Spatial clues: " + str(exc))
+                if source == "Synthetic demo":
+                    items = merge_evidence(detections, cached_demo_clues(image))
+                    demo_fallback = True
+                else:
+                    gemma_errors.append("Spatial clues: " + str(exc))
             progress.progress(70, text="Building the detective log from the visual scan...")
             leads = investigation_from_scan(items)
         progress.progress(100, text="Scene scan complete.")
@@ -66,6 +107,7 @@ if analyze:
         st.session_state.case = {"raw": raw, "digest": digest, "image": image,
                                  "items": items, "leads": leads,
                                  "gemma_errors": gemma_errors,
+                                 "demo_fallback": demo_fallback,
                                  "source_label": "Synthetic demo" if source == "Synthetic demo" else "Uploaded photo"}
         st.session_state.messages = []
         st.session_state.pop("statement_review", None)
@@ -80,6 +122,8 @@ if case is None:
 image = case["image"]
 items = case["items"]
 st.caption(f"Original image SHA-256: `{case['digest']}`")
+if case.get("demo_fallback"):
+    st.info("Demo continuity mode: Google returned an API error, so this bundled scene is showing saved output from a previous successful Gemma scan.")
 if case.get("gemma_errors"):
     for error in case["gemma_errors"]:
         st.warning(error)
@@ -159,6 +203,22 @@ with tab_questions:
     question = st.chat_input("What theory should the evidence test?", disabled=not bool(api_key))
     if question:
         history = st.session_state.get("messages", [])
+        normalized_question = " ".join(question.lower().split())
+        broad_scene_question = any(
+            phrase in normalized_question
+            for phrase in (
+                "what does this image", "what this image", "what can this image",
+                "what does the image", "what can the image", "describe this image",
+                "describe the image", "tell me about this image",
+            )
+        )
+        if broad_scene_question and case.get("leads"):
+            answer = "Based on the successful Gemma visual scan:\n\n" + format_investigation(case["leads"])
+            st.session_state.messages = history + [
+                {"role": "user", "content": question},
+                {"role": "assistant", "content": answer},
+            ]
+            st.rerun()
         try:
             with st.spinner("Gemma is cross-checking the theory against visual evidence..."):
                 result = investigate_scene(image, items, question, history, api_key)
@@ -167,10 +227,20 @@ with tab_questions:
                                                    {"role": "assistant", "content": answer}]
             st.rerun()
         except Exception as exc:
-            answer = format_investigation(evidence_only_fallback(items, question))
+            if case.get("leads"):
+                answer = (
+                    "The follow-up request was unavailable, so here are the findings from "
+                    "the successful Gemma visual scan:\n\n"
+                    + format_investigation(case["leads"])
+                )
+            else:
+                answer = (
+                    "Gemma API unavailable; evidence-only draft.\n\n"
+                    + format_investigation(evidence_only_fallback(items, question))
+                )
             st.session_state.messages = history + [{"role": "user", "content": question},
-                                                   {"role": "assistant", "content": "Gemma API unavailable; evidence-only draft.\n\n" + answer}]
-            st.warning("Gemma API unavailable; showing an evidence-only draft. " + str(exc))
+                                                   {"role": "assistant", "content": answer}]
+            st.warning("Gemma follow-up request failed; preserving the completed visual scan. " + str(exc))
             st.rerun()
     if not api_key:
         st.info("Set GEMINI_API_KEY in the local .env file to use Gemma 4.")
